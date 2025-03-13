@@ -1,36 +1,40 @@
 import pandas as pd
-import os
+import re
 
-def clean_endowment_column(df):
-    """Cleans the 'Endowment' column, converting '$1.5B' format to numeric."""
-    if "Endowment" in df.columns:
-        df["Endowment"] = df["Endowment"].astype(str).str.replace("$", "", regex=True)
-        df["Endowment"] = df["Endowment"].str.replace("B", "e9").str.replace("M", "e6")
-        df["Endowment"] = pd.to_numeric(df["Endowment"], errors="coerce").fillna(0)
-    return df
+# Load the CSV file
+file_path = '/Users/arnavsahai/Desktop/Arnav_Charlotte_API/arnav_charlotte_api/top-200-universities-in-north-america.csv'
+df = pd.read_csv(file_path, encoding='ISO-8859-1')
+# Remove special characters
+df['Name'] = df['Name'].apply(lambda x: re.sub(r'[^\x00-\x7F]+', '', x))
 
+# Handle missing values (example: fill with 0)
+df.fillna(0, inplace=True)
 
-def load_and_clean_data(dataset_path):
-    """Loads and cleans the dataset."""
-    if os.path.exists(dataset_path):
-        df = pd.read_csv(dataset_path, encoding='latin1')  # or try 'ISO-8859-1'
-    else:
-        return pd.DataFrame()  # Return empty DataFrame if file is missing
+# Standardize currency formatting
+def clean_currency(value):
+    if isinstance(value, str):
+        value = value.replace('$', '').replace(',', '')
+        if 'B' in value:
+            return float(value.replace('B', '')) * 1e9
+        elif 'M' in value:
+            return float(value.replace('M', '')) * 1e6
+        elif 'K' in value:
+            return float(value.replace('K', '')) * 1e3
+        return float(value)
+    return value
 
-    # Ensure Rank is used as a unique identifier
-    if "Rank" in df.columns:
-        df = df.rename(columns={"Rank": "id"})
-        df["id"] = df["id"].astype(float)
+df['Minimum Tuition cost'] = df['Minimum Tuition cost'].apply(clean_currency)
+df['Endowment'] = df['Endowment'].apply(clean_currency)
 
-    # Convert numerical columns
-    numerical_columns = ["id", "Established", "Academic Staff", "Number of Students", 
-                         "Minimum Tuition cost", "Volumes in the library", "Endowment"]
-    
-    for col in numerical_columns:
-        if col in df.columns:
-            df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
+# Trim whitespace
+df = df.applymap(lambda x: x.strip() if isinstance(x, str) else x)
 
-    # Clean Endowment column
-    df = clean_endowment_column(df)
+# Ensure consistent quoting (if needed)
+# This step might not be necessary if the CSV is read correctly
 
-    return df
+# Fix inconsistent capitalization
+df['Name'] = df['Name'].str.title()
+
+# Save the cleaned CSV file
+cleaned_file_path = '/Users/arnavsahai/Desktop/Arnav_Charlotte_API/arnav_charlotte_api/top-200-universities-in-north-america-cleaned.csv'
+df.to_csv(cleaned_file_path, index=False)
