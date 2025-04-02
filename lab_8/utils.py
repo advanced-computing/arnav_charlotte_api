@@ -26,7 +26,7 @@ def get_latest_data(pull_date: str) -> pd.DataFrame:
     df = download_cpi_data()
     
     # Normalize the DATE column
-    df['DATE'] = pd.to_datetime(df['DATE'], errors='coerce')
+    df['DATE'] = pd.to_datetime(df['DATE'], format="%Y:%m", errors='coerce')
 
     # Get the vintage column to use
     vintage_col = get_vintage_column(pull_date)
