@@ -1,24 +1,31 @@
 import duckdb
-import argparse
-import utils  # Import the updated utils.py
+from utils import get_latest_data
 
-# Define database path
-db_path = "/mnt/data/lab8.duckdb"
-table_name = "economic_data_trunc"
+def run(pull_date: str):
+    # Step 1: Get CPI data up to the given pull_date
+    data = get_latest_data(pull_date)
 
-# Parse arguments
-parser = argparse.ArgumentParser(description="Truncate and load new data into DuckDB")
-parser.add_argument("--pull_date", type=str, required=True, help="The pull date in YYYY-MM-DD format")
-args = parser.parse_args()
+    # Step 2: Connect to the DuckDB database
+    conn = duckdb.connect("economic_data_trunc.duckdb")
 
-# Fetch data
-df = utils.get_latest_data(args.pull_date)
+    # Step 3: Create table if it doesn't exist
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS economic_data_trunc (
+            date DATE,
+            cpi DOUBLE
+        );
+    """)
 
-# Truncate and reload new data
-con = duckdb.connect(db_path)
-con.execute(f"DROP TABLE IF EXISTS {table_name};")
-df.to_sql(table_name, con, if_exists="replace", index=False)
-con.close()
+    # Step 4: Truncate the table (delete all existing rows)
+    conn.execute("DELETE FROM economic_data_trunc;")
 
-print(f"Truncate and load completed for {table_name} with data up to {args.pull_date}")
+    # Step 5: Insert fresh data
+    conn.register("new_data", data)
+    conn.execute("""
+        INSERT INTO economic_data_trunc
+        SELECT * FROM new_data;
+    """)
 
+    print(f"[truncate] Pull date {pull_date}: Replaced with {len(data)} rows.")
+
+    conn.close()
