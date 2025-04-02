@@ -16,7 +16,7 @@ def download_cpi_data():
 
 # Get the correct vintage column name from pull_date
 def get_vintage_column(pull_date: str) -> str:
-    date_obj = pd.to_datetime(pull_date)
+    date_obj = pd.to_datetime(pull_date, format="%Y-%m-%d", errors='coerce')
     year_suffix = str(date_obj.year)[-2:]  # e.g., "04" for 2004
     month = date_obj.month
     return f"PCPI{year_suffix}M{month}"
@@ -42,7 +42,7 @@ def get_latest_data(pull_date: str) -> pd.DataFrame:
     result.dropna(subset=['cpi'], inplace=True)
 
     # Filter to include only data up to pull_date (inclusive)
-    pull_date_obj = pd.to_datetime(pull_date)
+    pull_date_obj = pd.to_datetime(pull_date, format="%Y-%m-%d", errors='coerce')
     result = result[result['date'] <= pull_date_obj]
 
     # Sort by date just in case
