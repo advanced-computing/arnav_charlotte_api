@@ -1,39 +1,50 @@
 import duckdb
-import argparse
-import utils  # Import the updated utils.py
+import pandas as pd
+from utils import get_latest_data
 
-# Define database path
-db_path = "/mnt/data/lab8.duckdb"
-table_name = "economic_data_inc"
+def run(pull_date: str):
+    # Step 1: Get CPI data up to the given pull_date
+    new_data = get_latest_data(pull_date)
 
-# Parse arguments
-parser = argparse.ArgumentParser(description="Incrementally load data into DuckDB")
-parser.add_argument("--pull_date", type=str, required=True, help="The pull date in YYYY-MM-DD format")
-args = parser.parse_args()
+    # Step 2: Connect to the DuckDB database for incremental loading
+    conn = duckdb.connect("economic_data_inc.duckdb")
 
-# Fetch data
-df = utils.get_latest_data(args.pull_date)
+    # Step 3: Create table if it doesn't exist
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS economic_data_inc (
+            date DATE PRIMARY KEY,
+            cpi DOUBLE
+        );
+    """)
 
-# Connect to database
-con = duckdb.connect(db_path)
+    # Step 4: Load existing dates
+    existing_dates_df = conn.execute("SELECT date FROM economic_data_inc").fetchdf()
+    existing_dates_set = set(existing_dates_df['date']) if not existing_dates_df.empty else set()
 
-# Ensure table exists
-con.execute(f"""
-    CREATE TABLE IF NOT EXISTS {table_name} (
-        date DATE PRIMARY KEY, 
-        cpi FLOAT
-    );
-""")
+    # Step 5: Split into new and existing rows
+    to_insert = new_data[~new_data['date'].isin(existing_dates_set)]
+    to_update = new_data[new_data['date'].isin(existing_dates_set)]
 
-# Insert new data or update existing records
-for index, row in df.iterrows():
-    con.execute(f"""
-        INSERT INTO {table_name} (date, cpi)
-        VALUES (?, ?) 
-        ON CONFLICT(date) DO UPDATE SET cpi = EXCLUDED.cpi;
-    """, (row["date"], row["cpi"]))
+    # Step 6: Insert new rows
+    if not to_insert.empty:
+        conn.register("to_insert", to_insert)
+        conn.execute("""
+            INSERT INTO economic_data_inc
+            SELECT * FROM to_insert;
+        """)
+        print(f"[incremental] Pull date {pull_date}: Inserted {len(to_insert)} new rows.")
 
-con.close()
+    # Step 7: Update existing rows (if CPI values changed)
+    if not to_update.empty:
+        for _, row in to_update.iterrows():
+            conn.execute("""
+                UPDATE economic_data_inc
+                SET cpi = ?
+                WHERE date = ?;
+            """, (row['cpi'], row['date']))
+        print(f"[incremental] Pull date {pull_date}: Updated {len(to_update)} existing rows.")
 
-print(f"Incremental data loading completed for {table_name} up to {args.pull_date}")
+    if to_insert.empty and to_update.empty:
+        print(f"[incremental] Pull date {pull_date}: No changes needed (data already up-to-date).")
 
+    conn.close()
