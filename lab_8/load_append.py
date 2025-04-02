@@ -1,22 +1,38 @@
 import duckdb
-import argparse
-import utils  # Import the updated utils.py
+import pandas as pd
+from utils import get_latest_data
 
-# Define database path
-db_path = "/mnt/data/lab8.duckdb"
-table_name = "economic_data_append"
+def run(pull_date: str):
+    # Step 1: Get latest CPI data up to the pull_date
+    data = get_latest_data(pull_date)
 
-# Parse arguments
-parser = argparse.ArgumentParser(description="Append new data into DuckDB")
-parser.add_argument("--pull_date", type=str, required=True, help="The pull date in YYYY-MM-DD format")
-args = parser.parse_args()
+    # Step 2: Connect to the DuckDB database for append
+    conn = duckdb.connect("economic_data_append.duckdb")
 
-# Fetch data
-df = utils.get_latest_data(args.pull_date)
+    # Step 3: Create table if it doesn't exist
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS economic_data_append (
+            date DATE,
+            cpi DOUBLE
+        );
+    """)
 
-# Insert into database (append mode)
-con = duckdb.connect(db_path)
-df.to_sql(table_name, con, if_exists="append", index=False)
-con.close()
+    # Step 4: Get existing dates in the table
+    existing_dates = conn.execute("SELECT date FROM economic_data_append").fetchdf()
+    existing_dates_set = set(existing_dates['date']) if not existing_dates.empty else set()
 
-print(f"Data appended successfully to {table_name} for date {args.pull_date}")
+    # Step 5: Filter data to only new dates
+    data_filtered = data[~data['date'].isin(existing_dates_set)]
+
+    # Step 6: Append only new dates
+    if not data_filtered.empty:
+        conn.register("temp_df", data_filtered)
+        conn.execute("""
+            INSERT INTO economic_data_append
+            SELECT * FROM temp_df;
+        """)
+        print(f"[append] Pull date {pull_date}: Inserted {len(data_filtered)} new rows.")
+    else:
+        print(f"[append] Pull date {pull_date}: No new data to insert (all dates already exist).")
+
+    conn.close()
